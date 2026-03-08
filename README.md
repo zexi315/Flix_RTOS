@@ -5,13 +5,12 @@
 ### **项目进行中**     
 
 计划实现多种方式操控无人机
-
 ----
 
 参考开源
 https://github.com/okalachev/flix  
 ESP32迷你无人机 https://oshwhub.com/malagis/esp32-mini-plane  
-
+---
 
 ## 开发日志
 
