@@ -13,8 +13,8 @@ ESP32迷你无人机 https://oshwhub.com/malagis/esp32-mini-plane
 ## 开发日志
 
 ### 2025-03-08
-PID放loop循环在加入光流和tof读取后执行出现阻塞；
-计划拆分代码，将控制部分放入FreeRtos中执行。
+控制放loop循环在加入光流和tof读取后执行出现阻塞导致pid参数失效  
+计划拆分代码，将控制部分放入FreeRtos中执行。  
  
 
 
