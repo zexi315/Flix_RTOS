@@ -1,8 +1,7 @@
 // Copyright (c) 2023 Oleg Kalachev <okalachev@gmail.com>
 // Repository: https://github.com/okalachev/flix
-// Main firmware file 主程序文件20251226
 // 参考嘉立创开源项目：ESP32迷你无人机 https://oshwhub.com/malagis/esp32-mini-plane
-
+// Flix_RTOS: https://github.com/zexi315/Flix_RTOS
 
 #include "vector.h"
 #include "quaternion.h"
@@ -20,6 +19,58 @@ Vector rates; // filtered angular rates, rad/s
 Quaternion attitude; // estimated attitude
 bool landed; // are we landed and stationary
 float motors[4]; // normalized motors thrust in range [0..1]
+
+// ================= FreeRTOS 任务 =================
+
+// 控制
+void TaskControl(void *pvParameters) {
+		TickType_t lastWakeTime = xTaskGetTickCount();
+    const TickType_t dt_ms = pdMS_TO_TICKS(2); // 2ms
+
+    while (1) {
+        readIMU();
+        step();
+        estimate();
+        control();
+        sendMotors();
+        vTaskDelayUntil(&lastWakeTime, dt_ms);
+    }
+}
+
+// 传感器
+void TaskSensors(void *pvParameters) {
+	const TickType_t dt_ms = pdMS_TO_TICKS(10); // 10ms
+    while (1) {
+        readVL53L0X();   // TOF
+        readFlow();      // 光流
+        vTaskDelay(dt_ms); 
+    }
+}
+
+
+// 通信
+void TaskComm(void *pvParameters) {
+	const TickType_t dt_ms = pdMS_TO_TICKS(20); // 20ms
+    while (1) {
+        handleInput();
+#if WIFI_ENABLED
+        processMavlink();
+#endif
+        vTaskDelay(dt_ms); 
+    }
+}
+
+// 日志
+void TaskLog(void *pvParameters) {
+	const TickType_t dt_ms = pdMS_TO_TICKS(50); // 50ms
+    while (1) {
+        logData();
+        syncParameters();
+        vTaskDelay(dt_ms); 
+    }
+}
+
+
 
 void setup() {
 	Serial.begin(115200);
@@ -39,39 +90,17 @@ void setup() {
 	setupIMU();
 	// setupRC();     		//sbus与光流传感器d4引脚冲突
 	setLED(false);
+
+	// 创建任务
+  xTaskCreatePinnedToCore(TaskControl, "Control", 4096, NULL, 4, NULL, 1);
+  xTaskCreatePinnedToCore(TaskSensors, "Sensors", 4096, NULL, 3, NULL, 0);
+  xTaskCreatePinnedToCore(TaskComm, "Comm", 4096, NULL, 2, NULL, 0);
+  xTaskCreatePinnedToCore(TaskLog, "Log", 4096, NULL, 1, NULL, 0);
+
 	print("初始化完成！\n");
+
 }
 
 void loop() {
-	static uint32_t last = micros();
-	uint32_t start = micros();
-	uint32_t loop_dt = start - last;
-	last = start;
-
-	readIMU();
-	step();
 	// readRC();					//sbus与光流传感器d4引脚冲突
-	estimate();
-	// readVL53L0X();   	//tof定高
-	// readFlow();        		//光流传感器读取
-	control();
-	sendMotors();
-	handleInput();
-#if WIFI_ENABLED
-	processMavlink();
-#endif
-	logData();
-	syncParameters();
-
-	uint32_t end = micros();
-	uint32_t exec_time = end - start;
-static int counter = 0;
-if (++counter >= 200) {
-    Serial.print("loop exec = ");
-    Serial.print(exec_time);
-    Serial.print(" us, period = ");
-    Serial.print(loop_dt);
-    Serial.println(" us");
-    counter = 0;
-}
 }
