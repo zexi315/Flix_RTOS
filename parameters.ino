@@ -48,6 +48,18 @@ Parameter parameters[] = {
 	{"ALT_D", &altPID.d},
 	{"ALT_I_LIM", &altPID.windup},
 	{"hoverEnabled", &hoverEnabled},
+	//光流
+	{"FLOW_P_X", &flowXPID.p},
+	{"FLOW_P_X", &flowXPID.i},
+	{"FLOW_P_X", &flowXPID.d},
+	{"FLOW_I_LIM_X", &flowXPID.windup},
+	{"FLOW_P_Y", &flowYPID.p},
+	{"FLOW_P_Y", &flowYPID.i},
+	{"FLOW_P_Y", &flowYPID.d},
+	{"FLOW_I_LIM_Y", &flowYPID.windup},
+	{"FLOW_PIXEL_TO_M_COEFF", &FLOW_PIXEL_TO_M_COEFF},
+	{"FLOW_MAX_SPEED", &FLOW_MAX_SPEED},
+
 	// imu
 	{"IMU_ACC_BIAS_X", &accBias.x},
 	{"IMU_ACC_BIAS_Y", &accBias.y},

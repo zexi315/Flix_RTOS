@@ -15,8 +15,24 @@
 // ============== PMW3901参数 ==============
 SPIClass hspi(HSPI);  // 声明 HSPI
 Bitcraze_PMW3901 flow(15, &hspi);  // CS=GPIO4，使用 HSPI
+
+#define FLOW_P 0
+#define FLOW_I 0
+#define FLOW_D 0
+#define FLOW_I_LIM 0.3
+
+PID flowXPID(FLOW_P, FLOW_I, FLOW_D, FLOW_I_LIM);
+PID flowYPID(FLOW_P, FLOW_I, FLOW_D, FLOW_I_LIM);
+
 int16_t deltaX = 0, deltaY = 0;
 
+// 光流速度（m/s）
+float flowVx = 0.0; // 前后速度，正为向前
+float flowVy = 0.0; // 左右速度，正为向左
+
+// 光流参数
+float FLOW_MAX_SPEED = 0.6; // 摇杆映射的最大速度 m/s
+float FLOW_PIXEL_TO_M_COEFF = 0.0014; // 经验系数
 
 // ============== VL53L0x参数 ==============
 #define SDA_PIN 21
@@ -92,6 +108,19 @@ extern const int MOTOR_REAR_LEFT, MOTOR_REAR_RIGHT, MOTOR_FRONT_RIGHT, MOTOR_FRO
 extern float controlRoll, controlPitch, controlThrottle, controlYaw, controlMode;
 
 
+void debug() {
+    char buf[160];
+
+    snprintf(buf, sizeof(buf),
+        "TOF: %.3fm | Flow Vx: %.3f Vy: %.3f | dX:%d dY:%d\n",
+        isnan(heightMeasured) ? -1.0f : heightMeasured,
+        flowVx, flowVy,
+        deltaX, deltaY
+    );
+
+    Serial.print(buf);
+}
+
 void setupFlow() {
 	// 初始化 HSPI 总线，指定引脚
    hspi.begin(14, 4, 13, 15); // HSPI: SCK=14, MISO=4, MOSI=13, CS=15
@@ -114,6 +143,52 @@ void readFlow() {
     // Serial.println(deltaY);
 }
 
+void computeFlowVelocity() {
+    static unsigned long lastMs = 0;
+    unsigned long now = millis();
+    if (lastMs == 0) { lastMs = now; return; }
+    float dtSec = (now - lastMs) / 1000.0f;
+    lastMs = now;
+    if (dtSec <= 0 || dtSec > 0.2f) return; // 防止异常间隔
+
+    // 需要有效高度才能把像素位移转换为米/秒
+    if (isnan(heightMeasured)) {
+        flowVx = 0;
+        flowVy = 0;
+        return;
+    }
+
+    float scale = heightMeasured * FLOW_PIXEL_TO_M_COEFF; // m =
+
+    flowVx = (float)deltaY * scale / dtSec; // 前为正
+    flowVy = (float)deltaX * scale / dtSec; // 左为正
+
+
+}
+
+void controlFlow() {
+    if (!armed) return;
+
+    // 摇杆给速度目标（m/s）
+    float vxTarget = controlPitch * FLOW_MAX_SPEED; // 摇杆前后 -> 目标前后速度
+    float vyTarget = controlRoll  * FLOW_MAX_SPEED; // 摇杆左右 -> 目标左右速度
+
+    // 速度误差
+    float ex = vxTarget - flowVx;
+    float ey = vyTarget - flowVy;
+
+    // PID 输出 
+    float pitchCmd = flowXPID.update(ex); // X 速度 -> pitch
+    float rollCmd  = flowYPID.update(ey); // Y 速度 -> roll
+
+    // 限制最大倾角
+    pitchCmd = constrain(pitchCmd, -tiltMax, tiltMax);
+    rollCmd  = constrain(rollCmd,  -tiltMax, tiltMax);
+
+    // 
+    float yawTarget = attitudeTarget.getYaw();
+    attitudeTarget = Quaternion::fromEuler(Vector(rollCmd, pitchCmd, yawTarget));
+}
 
 void setupVL53L0X(){  //初始化TOF测距
 	Serial.print("Setup VL53L0X");
@@ -133,14 +208,15 @@ void setupVL53L0X(){  //初始化TOF测距
 		if (lox.begin()) { 
 			lox.startRangeContinuous(); // 启动连续测距 
 			Serial.println("VL53L0X initialized"); 
+			return; 
 		} 
 			Serial.print("VL53L0X init failed, retry ");
 		 	Serial.println(i + 1); 
 		 	delay(100); 
 		 } 
 
-		 Serial.println(F("Failed to boot VL53L0X after retries")); 
-
+	Serial.println(F("Failed to boot VL53L0X after retries")); 
+	while(1);
   // if (!lox.begin()) {
   //   Serial.println(F("Failed to boot VL53L0X"));
   //   while(1);
@@ -173,13 +249,13 @@ void readVL53L0X(){
 
 	lastTofMs = millis();
 
-	// Serial.print("Distance in m: ");
-  // Serial.println(heightMeasured,3);
+
 }
 
 void control() {
 	interpretControls();
 	failsafe();
+	// controlFlow();
 	controlAttitude();
 	controlAltitude();
 	controlRates();
