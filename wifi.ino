@@ -19,7 +19,7 @@ WiFiUDP udp;
 
 void setupWiFi() {
 	print("Setup Wi-Fi\n");
-	WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
+	WiFi.softAP(WIFI_SSID, WIFI_PASSWORD,6);
 	udp.begin(WIFI_UDP_PORT);
 }
 

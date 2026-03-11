@@ -6,8 +6,11 @@
 #include "vector.h"
 #include "quaternion.h"
 #include "util.h"
+#include "espnow_rc.h"
 
-#define WIFI_ENABLED 1
+
+
+#define WIFI_ENABLED 0
 
 float t = NAN; // current step time, s
 float dt; // time delta from previous step, s
@@ -22,6 +25,8 @@ float motors[4]; // normalized motors thrust in range [0..1]
 
 // ================= FreeRTOS 任务 =================
 
+Rate debugRate(5); // 每秒 5 次
+
 // 控制
 void TaskControl(void *pvParameters) {
 	TickType_t lastWakeTime = xTaskGetTickCount();
@@ -32,12 +37,14 @@ void TaskControl(void *pvParameters) {
         step();
         estimate();
         control();
+        // if (debugRate) debug();  // 每秒 5 次
         sendMotors();
         
+        vTaskDelayUntil(&lastWakeTime, dt_ms);
     }
 }
 
-Rate debugRate(5); // 每秒 5 次
+
 
 // 传感器
 void TaskSensors(void *pvParameters) {
@@ -46,7 +53,6 @@ void TaskSensors(void *pvParameters) {
         readVL53L0X();   // TOF
         readFlow();      // 光流
         computeFlowVelocity(); // 计算速度
-        // if (debugRate) debug();  // 每秒 5 次
         vTaskDelay(dt_ms); 
     }
 }
@@ -91,6 +97,25 @@ void setup() {
 #if WIFI_ENABLED
 	setupWiFi();
 #endif
+
+#if !WIFI_ENABLED
+  // ESP-NOW 初始化
+  WiFi.mode(WIFI_STA);
+  WiFi.setChannel(ESPNOW_WIFI_CHANNEL);
+  while (!WiFi.STA.started()) {
+    delay(100);
+  }
+
+  if (!ESP_NOW.begin()) {
+    Serial.println("ESP-NOW init failed, rebooting...");
+    delay(5000);
+    ESP.restart();
+  }
+
+  ESP_NOW.onNewPeer(register_new_master, nullptr);
+  Serial.println("ESP-NOW ready, 等待遥控器广播数据...");
+#endif
+
 	setupIMU();
 	// setupRC();     		//sbus与光流传感器d4引脚冲突
 	setLED(false);

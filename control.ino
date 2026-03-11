@@ -7,10 +7,14 @@
 #include "pid.h"
 #include "lpf.h"
 #include "util.h"
+#include "espnow_rc.h"
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_VL53L0X.h>
 #include <Bitcraze_PMW3901.h>
+
+
+
 
 // ============== PMW3901参数 ==============
 SPIClass hspi(HSPI);  // 声明 HSPI
@@ -105,20 +109,27 @@ Vector torqueTarget;
 float thrustTarget;
 
 extern const int MOTOR_REAR_LEFT, MOTOR_REAR_RIGHT, MOTOR_FRONT_RIGHT, MOTOR_FRONT_LEFT;
-extern float controlRoll, controlPitch, controlThrottle, controlYaw, controlMode;
+// extern float controlRoll, controlPitch, controlThrottle, controlYaw, controlMode;
 
 
 void debug() {
-    char buf[160];
+    // char buf[160];
 
-    snprintf(buf, sizeof(buf),
-        "TOF: %.3fm | Flow Vx: %.3f Vy: %.3f | dX:%d dY:%d\n",
-        isnan(heightMeasured) ? -1.0f : heightMeasured,
-        flowVx, flowVy,
-        deltaX, deltaY
-    );
+    // snprintf(buf, sizeof(buf),
+    //     "TOF: %.3fm | Flow Vx: %.3f Vy: %.3f | dX:%d dY:%d\n",
+    //     isnan(heightMeasured) ? -1.0f : heightMeasured,
+    //     flowVx, flowVy,
+    //     deltaX, deltaY
+    // );
 
-    Serial.print(buf);
+    // Serial.print(buf);
+		  // Serial.println("=== 控制量更新 ===");
+      // Serial.print("Throttle: "); Serial.println(controlThrottle);
+      // Serial.print("Yaw: "); Serial.println(controlYaw);
+      // Serial.print("Roll: "); Serial.println(controlRoll);
+      // Serial.print("Pitch: "); Serial.println(controlPitch);
+      // Serial.print("Mode: "); Serial.println(controlMode);
+      // Serial.println("=================");
 }
 
 void setupFlow() {
@@ -274,7 +285,7 @@ void interpretControls() {
 	if (mode == AUTO) return; // pilot is not effective in AUTO mode
 
 	if (controlThrottle < 0.05 && controlYaw > 0.95) armed = true; // arm gesture
-	if (controlThrottle < 0.05 && controlYaw < -0.95) armed = false; // disarm gesture
+	if (controlThrottle < 0.05 && controlYaw < -0.84) armed = false; // disarm gesture  //手柄只能到-90
 
 	if (abs(controlYaw) < 0.1) controlYaw = 0; // yaw dead zone
 
@@ -394,3 +405,5 @@ void controlAltitude() {
     // 限制推力范围，避免过大或掉落
     thrustTarget = constrain(thrustTarget, 0.1f, 0.8f);
 }
+
+
