@@ -47,6 +47,11 @@ Parameter parameters[] = {
 	{"ALT_I", &altPID.i},
 	{"ALT_D", &altPID.d},
 	{"ALT_I_LIM", &altPID.windup},
+	{"VZ_P", &vzPID.p},
+	{"VZ_I", &vzPID.i},
+	{"VZ_D", &vzPID.d},
+	{"VZ_I_LIM", &vzPID.windup},
+	{"hoverThrust",&hoverThrust},
 	{"hoverEnabled", &hoverEnabled},
 	//光流
 	{"FLOW_P_X", &flowXPID.p},

@@ -10,7 +10,7 @@
 
 
 
-#define WIFI_ENABLED 0
+#define WIFI_ENABLED 1
 
 float t = NAN; // current step time, s
 float dt; // time delta from previous step, s

@@ -46,6 +46,19 @@ float FLOW_PIXEL_TO_M_COEFF = 0.0014; // 经验系数
 #define ALT_I 0
 #define ALT_D 0
 #define ALT_I_LIM 0.3
+
+// ========== 垂直速度环（内环） ==========
+#define VZ_P 0
+#define VZ_I 0
+#define VZ_D 0
+#define VZ_I_LIM 0.3
+
+
+
+float vz = 0;          // 实际垂直速度（m/s）
+float vzTarget = 0;    // 目标垂直速度（m/s）
+float lastHeight = NAN;
+
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 
 float hoverEnabled = 0;   //悬停开关 0 = false, 1 = true
@@ -54,16 +67,16 @@ float heightMeasured = NAN; // 滤波后高度，单位 m
 const float EMA_ALPHA = 0.6f; // 0..1，越大越平滑（0.6~0.85 常用） 
 unsigned long lastTofMs = 0; 
 const unsigned long TOF_TIMEOUT_MS = 200;
-
+PID vzPID(VZ_P, VZ_I, VZ_D, VZ_I_LIM);
 PID altPID(ALT_P, ALT_I, ALT_D, ALT_I_LIM);
 float altTarget = NAN;   // 目标高度（米）
 
 
 
 // ============== 角速率环（内环）参数 ==============
-#define PITCHRATE_P 1.5 // 增大P值提高响应速度
-#define PITCHRATE_I 0.008 // 中等I值补偿电机差异
-#define PITCHRATE_D 0.09 // 小D值抑制震荡
+#define PITCHRATE_P 0.08 // 增大P值提高响应速度
+#define PITCHRATE_I 0.006 // 中等I值补偿电机差异
+#define PITCHRATE_D 0.003 // 小D值抑制震荡
 #define PITCHRATE_I_LIM 0.3 // 限制积分积累
 #define ROLLRATE_P PITCHRATE_P // 横滚和俯仰使用相同参数
 #define ROLLRATE_I PITCHRATE_I 
@@ -113,14 +126,14 @@ extern const int MOTOR_REAR_LEFT, MOTOR_REAR_RIGHT, MOTOR_FRONT_RIGHT, MOTOR_FRO
 
 
 void debug() {
-    // char buf[160];
+    char buf[160];
 
-    // snprintf(buf, sizeof(buf),
-    //     "TOF: %.3fm | Flow Vx: %.3f Vy: %.3f | dX:%d dY:%d\n",
-    //     isnan(heightMeasured) ? -1.0f : heightMeasured,
-    //     flowVx, flowVy,
-    //     deltaX, deltaY
-    // );
+    snprintf(buf, sizeof(buf),
+        "TOF: %.3fm | Flow Vx: %.3f Vy: %.3f | dX:%d dY:%d\n | vz: %.3f" ,
+        isnan(heightMeasured) ? -1.0f : heightMeasured,
+        flowVx, flowVy,
+        deltaX, deltaY,vz
+    );
 
     // Serial.print(buf);
 		  // Serial.println("=== 控制量更新 ===");
@@ -268,6 +281,7 @@ void control() {
 	failsafe();
 	// controlFlow();
 	controlAttitude();
+	computeVerticalSpeed();
 	controlAltitude();
 	controlRates();
 	controlTorque();
@@ -278,10 +292,7 @@ void interpretControls() {
 	if (controlMode < 0.75) mode = STAB;
 	if (controlMode > 0.75) mode = STAB;
 
-	if (!hoverEnabled) {
-    	altTarget = NAN;   // 退出悬停时重置
-	}
-
+	
 	if (mode == AUTO) return; // pilot is not effective in AUTO mode
 
 	if (controlThrottle < 0.05 && controlYaw > 0.95) armed = true; // arm gesture
@@ -289,7 +300,12 @@ void interpretControls() {
 
 	if (abs(controlYaw) < 0.1) controlYaw = 0; // yaw dead zone
 
-	thrustTarget = controlThrottle;
+	if (!hoverEnabled) {
+    	altTarget = NAN;   // 退出悬停时重置
+			thrustTarget = controlThrottle;   //推出悬停摇杆控制油门
+		}
+			
+	
 
 	if (mode == STAB) {
 		float yawTarget = attitudeTarget.getYaw();
@@ -313,7 +329,7 @@ void interpretControls() {
 }
 
 void controlAttitude() {
-	if (!armed || attitudeTarget.invalid() || thrustTarget < 0.1) return; // skip attitude control
+	if ((!armed || attitudeTarget.invalid() || thrustTarget < 0.1) && hoverEnabled == 0) return; // skip attitude control
 
 	const Vector up(0, 0, 1);
 	Vector upActual = Quaternion::rotateVector(up, attitude);
@@ -330,7 +346,7 @@ void controlAttitude() {
 
 
 void controlRates() {
-	if (!armed || ratesTarget.invalid() || thrustTarget < 0.1) return; // skip rates control
+	if ((!armed || ratesTarget.invalid() || thrustTarget < 0.1) && hoverEnabled == 0) return; // skip rates control
 
 	Vector error = ratesTarget - rates;//ratesTarget - rates;
 
@@ -348,7 +364,7 @@ void controlTorque() {
 		return;
 	}
 
-	if (thrustTarget < 0.1) {
+	if (thrustTarget < 0.1 && hoverEnabled == 0) {
 		motors[0] = 0.1; // idle thrust
 		motors[1] = 0.1;
 		motors[2] = 0.1;
@@ -377,33 +393,57 @@ const char* getModeName() {
 	}
 }
 
-float hoverThrust = 0.52f;   // 悬停基准油门
+void computeVerticalSpeed() {
+    static unsigned long lastMs = 0;
+    unsigned long now = millis();
+    if (lastMs == 0) { lastMs = now; return; }
+
+    float dt = (now - lastMs) / 1000.0f;
+    lastMs = now;
+
+    if (dt <= 0 || dt > 0.2f) return;
+
+    if (isnan(heightMeasured) || isnan(lastHeight)) {
+        lastHeight = heightMeasured;
+        vz = 0;
+        return;
+    }
+
+    vz = (heightMeasured - lastHeight) / dt;
+    lastHeight = heightMeasured;
+}
+
+
+
+float hoverThrust = 0.56;   // 悬停基准油门0.56
 
 void controlAltitude() {
 
     if (hoverEnabled == 0) return;
 		if (!armed) return;
-
-    // TOF 无效则不控制
     if (isnan(heightMeasured)) return;
 
-    // 初始化目标高度（第一次进入定高时）
-    if (isnan(altTarget)) {
-        altTarget = heightMeasured;
-        return;
-    }
+    // // 初始化目标高度（第一次进入定高时）
+    // if (isnan(altTarget)) {
+    //     altTarget = heightMeasured;
+    //     return;
+    // }
+		// ========== 外环：高度误差 → 目标速度 ==========
+    float altError = 0.8 - heightMeasured;   // 目标高度 0.8m
+    vzTarget = 0;//altPID.update(altError);               // 高度P（外环增益）
 
-    // 计算高度误差
-    float error = altTarget - heightMeasured;
+    // 限制最大上下速度（安全）
+    vzTarget = constrain(vzTarget, -0.6f, 0.6f);
 
-    // PID 输出为推力修正量
-    float correction = altPID.update(error);
+    // ========== 内环：速度误差 → 推力修正 ==========
+    float vzError = vzTarget - vz;
+    float correction = vzPID.update(vzError);
 
-    // thrustTarget 是 0~1 的归一化推力
+    // ========== 推力 = 悬停油门 + 修正 ==========
     thrustTarget = hoverThrust + correction;
 
-    // 限制推力范围，避免过大或掉落
     thrustTarget = constrain(thrustTarget, 0.1f, 0.8f);
+
 }
 
 
