@@ -24,6 +24,7 @@
 没有备用扇叶了
 计划在新扇叶到之前把esp_now遥控代码写完测试一下
 
-
+### 2025-03-13
+扇叶刚到电机又坏了:blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush::blush:
 
 
