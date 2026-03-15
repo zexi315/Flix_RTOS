@@ -43,14 +43,14 @@ float FLOW_PIXEL_TO_M_COEFF = 0.0014; // 经验系数
 #define SCL_PIN 22
 #define I2C_FREQ 400000 // 400kHz
 #define ALT_P 0
-#define ALT_I 0
-#define ALT_D 0
+#define ALT_I 0   //为0 
+#define ALT_D 0   //为0
 #define ALT_I_LIM 0.3
 
 // ========== 垂直速度环（内环） ==========
-#define VZ_P 0
-#define VZ_I 0
-#define VZ_D 0
+#define VZ_P 0.45
+#define VZ_I 0.05
+#define VZ_D 0.07
 #define VZ_I_LIM 0.3
 
 
@@ -129,13 +129,14 @@ void debug() {
     char buf[160];
 
     snprintf(buf, sizeof(buf),
-        "TOF: %.3fm | Flow Vx: %.3f Vy: %.3f | dX:%d dY:%d\n | vz: %.3f" ,
+        "TOF: %.3fm | Flow Vx: %.3f Vy: %.3f | dX:%d dY:%d | vz: %.3f\n" ,
         isnan(heightMeasured) ? -1.0f : heightMeasured,
         flowVx, flowVy,
-        deltaX, deltaY,vz
+        deltaX, deltaY,
+				vz
     );
 
-    // Serial.print(buf);
+    Serial.print(buf);
 		  // Serial.println("=== 控制量更新 ===");
       // Serial.print("Throttle: "); Serial.println(controlThrottle);
       // Serial.print("Yaw: "); Serial.println(controlYaw);
@@ -277,11 +278,13 @@ void readVL53L0X(){
 }
 
 void control() {
+
+	if (Pre_arm()) return;   
+
 	interpretControls();
 	failsafe();
 	// controlFlow();
 	controlAttitude();
-	computeVerticalSpeed();
 	controlAltitude();
 	controlRates();
 	controlTorque();
@@ -393,15 +396,38 @@ const char* getModeName() {
 	}
 }
 
+// void computeVerticalSpeed() {
+//     static unsigned long lastMs = 0;
+//     unsigned long now = millis();
+//     if (lastMs == 0) { lastMs = now; return; }
+
+//     float dt = (now - lastMs) / 1000.0f;
+//     lastMs = now;
+
+//     if (dt <= 0 || dt > 0.2f) return;
+
+//     if (isnan(heightMeasured) || isnan(lastHeight)) {
+//         lastHeight = heightMeasured;
+//         vz = 0;
+//         return;
+//     }
+
+//     vz = (heightMeasured - lastHeight) / dt;
+//     lastHeight = heightMeasured;
+// }
+
 void computeVerticalSpeed() {
-    static unsigned long lastMs = 0;
-    unsigned long now = millis();
-    if (lastMs == 0) { lastMs = now; return; }
+    static bool inited = false;
+    static float vz_raw = 0.0f;
+    const float dt = 0.01f;      // 10ms
+    const float alpha = 0.2f;    // 低通滤波系数
 
-    float dt = (now - lastMs) / 1000.0f;
-    lastMs = now;
-
-    if (dt <= 0 || dt > 0.2f) return;
+    if (!inited) {
+        lastHeight = heightMeasured;
+        vz = 0;
+        inited = true;
+        return;
+    }
 
     if (isnan(heightMeasured) || isnan(lastHeight)) {
         lastHeight = heightMeasured;
@@ -409,13 +435,16 @@ void computeVerticalSpeed() {
         return;
     }
 
-    vz = (heightMeasured - lastHeight) / dt;
+    vz_raw = (heightMeasured - lastHeight) / dt;
     lastHeight = heightMeasured;
+
+    // 低通滤波
+    vz = vz * (1.0f - alpha) + vz_raw * alpha;
 }
 
 
+float hoverThrust = 0.6;   // 悬停基准油门0.56
 
-float hoverThrust = 0.56;   // 悬停基准油门0.56
 
 void controlAltitude() {
 
@@ -429,11 +458,8 @@ void controlAltitude() {
     //     return;
     // }
 		// ========== 外环：高度误差 → 目标速度 ==========
-    float altError = 0.8 - heightMeasured;   // 目标高度 0.8m
-    vzTarget = 0;//altPID.update(altError);               // 高度P（外环增益）
-
-    // 限制最大上下速度（安全）
-    vzTarget = constrain(vzTarget, -0.6f, 0.6f);
+    float altError = 0.55 - heightMeasured;   // 目标高度 0.8m
+    vzTarget = altPID.update(altError);               // 高度P（外环增益）
 
     // ========== 内环：速度误差 → 推力修正 ==========
     float vzError = vzTarget - vz;
@@ -446,4 +472,34 @@ void controlAltitude() {
 
 }
 
+bool Preflight = false;
+uint32_t PreArmTime = 0;
+
+bool Pre_arm() {  //非摇杆控制，预启动，防止起飞偏移
+
+		if (hoverEnabled == 0) {
+        Preflight = false;
+        return false;
+    }
+
+		if (!armed) { 
+        Preflight = false; 
+        return false; 
+    }
+
+		if (!Preflight) {
+        Preflight = true;
+        PreArmTime = millis();
+    }
+
+		if (millis() - PreArmTime < 1000) {
+        motors[0] = 0.10;
+        motors[1] = 0.10;
+        motors[2] = 0.10;
+        motors[3] = 0.10;
+        return true;   
+    }
+
+    return false;      
+}
 

@@ -98,6 +98,7 @@ void handleMavlink(const void *_msg) {
 		mavlink_msg_manual_control_decode(&msg, &m);
 		if (m.target && m.target != SYSTEM_ID) return; // 0 is broadcast
 
+
 		controlThrottle = m.z / 1000.0f;
 		controlPitch = m.x / 1000.0f;
 		controlRoll = m.y / 1000.0f;
@@ -228,6 +229,7 @@ void handleMavlink(const void *_msg) {
 		if (m.target_system && m.target_system != SYSTEM_ID) return;
 		mavlink_message_t response;
 		bool accepted = false;
+
 
 		if (m.command == MAV_CMD_REQUEST_MESSAGE && m.param1 == MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
 			accepted = true;

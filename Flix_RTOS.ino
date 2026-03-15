@@ -12,6 +12,8 @@
 
 #define WIFI_ENABLED 1
 
+
+
 float t = NAN; // current step time, s
 float dt; // time delta from previous step, s
 float controlRoll, controlPitch, controlYaw, controlThrottle; // pilot's inputs, range [-1, 1]
@@ -25,7 +27,7 @@ float motors[4]; // normalized motors thrust in range [0..1]
 
 // ================= FreeRTOS 任务 =================
 
-Rate debugRate(5); // 每秒 5 次
+
 
 // 控制
 void TaskControl(void *pvParameters) {
@@ -37,9 +39,7 @@ void TaskControl(void *pvParameters) {
         step();
         estimate();
         control();
-        // if (debugRate) debug();  // 每秒 5 次
         sendMotors();
-        
         vTaskDelayUntil(&lastWakeTime, dt_ms);
     }
 }
@@ -48,11 +48,15 @@ void TaskControl(void *pvParameters) {
 
 // 传感器
 void TaskSensors(void *pvParameters) {
+  // Rate debugRate(5); // 每秒 5 次
 	const TickType_t dt_ms = pdMS_TO_TICKS(10); // 10ms
+
     while (1) {
         readVL53L0X();   // TOF
         readFlow();      // 光流
-        computeFlowVelocity(); // 计算速度
+        computeFlowVelocity(); // 计算水平速度
+        computeVerticalSpeed(); //计算垂直速度
+        // if (debugRate) debug();  // 每秒 5 次
         vTaskDelay(dt_ms); 
     }
 }
